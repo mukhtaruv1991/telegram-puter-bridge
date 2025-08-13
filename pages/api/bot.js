@@ -12,7 +12,8 @@ const bot = new TelegramBot(TELEGRAM_TOKEN);
 // دالة جديدة تتصل بـ Google Gemini API
 async function getGeminiResponse(prompt) {
     // اسم النموذج
-    const model = 'gemini-1.5-flash-latest'; // استخدام أحدث نسخة من فلاش
+    const model = 'gemini-1.5-pro-latest'; // استخدام النموذج الاحترافي الأقوى
+  //  const model = 'gemini-1.5-flash-latest'; // استخدام أحدث نسخة من فلاش
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
 
     try {
