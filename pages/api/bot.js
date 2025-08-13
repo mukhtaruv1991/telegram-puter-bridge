@@ -1,8 +1,8 @@
 // File: pages/api/bot.js
-// -- نسخة نهائية تستخدم @sparticvs/chromium-min (الاسم الصحيح) --
+// -- نسخة نهائية تعود لاستخدام chrome-aws-lambda مع إصدارات متوافقة --
 
 const TelegramBot = require('node-telegram-bot-api');
-const chromium = require('@sparticvs/chromium-min');
+const chrome = require('chrome-aws-lambda'); // العودة لاستخدام chrome-aws-lambda
 const puppeteer = require('puppeteer-core');
 
 const TOKEN = process.env.TELEGRAM_TOKEN;
@@ -11,13 +11,11 @@ const bot = new TelegramBot(TOKEN);
 async function getClaudeResponse(prompt) {
   let browser = null;
   try {
-    console.log("1. Launching browser with @sparticvs/chromium-min...");
+    console.log("1. Launching browser with chrome-aws-lambda...");
     browser = await puppeteer.launch({
-      args: chromium.args,
-      defaultViewport: chromium.defaultViewport,
-      executablePath: await chromium.executablePath(),
-      headless: chromium.headless,
-      ignoreHTTPSErrors: true,
+      args: chrome.args,
+      executablePath: await chrome.executablePath,
+      headless: chrome.headless,
     });
     console.log("2. Browser launched successfully.");
 
