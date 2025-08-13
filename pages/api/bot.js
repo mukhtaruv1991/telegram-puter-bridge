@@ -1,83 +1,64 @@
 // File: pages/api/bot.js
-// -- نسخة نهائية جذرية: استدعاء API مباشر بدون متصفح --
+// -- نسخة نهائية: تعمل مع Google Gemini API مباشرة --
 
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 
-const TOKEN = process.env.TELEGRAM_TOKEN;
-const bot = new TelegramBot(TOKEN);
+const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
+// استيراد مفتاح Gemini API من متغيرات البيئة
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
-const userModelSelection = {};
+const bot = new TelegramBot(TELEGRAM_TOKEN);
 
-// دالة جديدة تستدعي API Puter مباشرة
-async function getAiResponse(prompt, modelName) {
+// دالة جديدة تتصل بـ Google Gemini API
+async function getGeminiResponse(prompt) {
+    // اسم النموذج
+    const model = 'gemini-1.5-flash'; // استخدام نموذج فلاش السريع
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
+
     try {
         const response = await axios.post(
-            'https://api.puter.com/ai/chat',
+            url,
             {
-                model: modelName,
-                messages: [{ role: 'user', content: prompt }],
+                contents: [{
+                    parts: [{
+                        text: prompt
+                    }]
+                }]
             },
             {
                 headers: {
                     'Content-Type': 'application/json',
-                    // Puter.js يعتمد على هذا الرأس لتحديد المصدر
-                    'Referer': 'https://puter.com/chat', 
                 },
-                timeout: 150000, // مهلة 150 ثانية
+                timeout: 120000, // مهلة 120 ثانية
             }
         );
 
-        // استخراج الرد من البيانات
-        if (response.data && response.data.message && response.data.message.content) {
-            return response.data.message.content[0].text;
+        // استخراج الرد من بنية بيانات Gemini
+        if (response.data && response.data.candidates && response.data.candidates[0].content.parts[0].text) {
+            return response.data.candidates[0].content.parts[0].text;
         } else {
-            throw new Error('Invalid response structure from Puter API');
+            throw new Error('Invalid response structure from Gemini API');
         }
 
     } catch (error) {
-        console.error(`Error in getAiResponse for model ${modelName}:`, error.response ? error.response.data : error.message);
-        return `عذرًا، حدث خطأ أثناء التواصل المباشر مع Puter API. (الخطأ: ${error.message})`;
+        console.error("Error calling Gemini API:", error.response ? error.response.data : error.message);
+        return `عذرًا، حدث خطأ أثناء التواصل مع Google Gemini API. (الخطأ: ${error.message})`;
     }
 }
 
+// المعالج الرئيسي للرسائل
 export default async function handler(req, res) {
     try {
-        const body = req.body;
+        const { message } = req.body;
 
-        if (body.callback_query) {
-            const chatId = body.callback_query.message.chat.id;
-            const modelChoice = body.callback_query.data;
-            userModelSelection[chatId] = modelChoice;
-            const modelDisplayName = modelChoice === 'gemini' ? 'Gemini 1.5 Pro' : 'Claude 3 Sonnet';
-            await bot.sendMessage(chatId, `✅ تم اختيار نموذج ${modelDisplayName}.`);
-            await bot.answerCallbackQuery(body.callback_query.id);
-        }
-        else if (body.message) {
-            const chatId = body.message.chat.id;
-            const userText = body.message.text;
-
-            if (userText === '/model') {
-                const options = {
-                    reply_markup: {
-                        inline_keyboard: [
-                            [
-                                { text: '🤖 Gemini 1.5 Pro', callback_data: 'gemini' },
-                                { text: '✨ Claude 3 Sonnet', callback_data: 'claude' }
-                            ]
-                        ]
-                    }
-                };
-                await bot.sendMessage(chatId, 'اختر النموذج الذي تريد استخدامه:', options);
-            }
-            else if (userText) {
-                const selectedModel = userModelSelection[chatId] || 'claude'; 
-                const modelApiName = selectedModel === 'gemini' ? 'gemini-1.5-pro-latest' : 'claude-3-sonnet-20240229';
-                
-                await bot.sendChatAction(chatId, 'typing');
-                const aiResponse = await getAiResponse(userText, modelApiName);
-                await bot.sendMessage(chatId, aiResponse);
-            }
+        if (message && message.text) {
+            const chatId = message.chat.id;
+            const userText = message.text;
+            
+            await bot.sendChatAction(chatId, 'typing');
+            const geminiResponse = await getGeminiResponse(userText);
+            await bot.sendMessage(chatId, geminiResponse);
         }
     } catch (error) {
         console.error('Handler Error:', error);
