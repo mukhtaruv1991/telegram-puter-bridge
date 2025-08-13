@@ -1,5 +1,5 @@
 // File: pages/api/bot.js
-// -- نسخة نهائية: استخدام مكتبة puppeteer الكاملة --
+// -- نسخة نهائية: استخدام puppeteer الكامل + حل مشكلة التنسيق --
 
 const TelegramBot = require('node-telegram-bot-api');
 const puppeteer = require('puppeteer'); // استخدام مكتبة puppeteer الكاملة
@@ -95,7 +95,10 @@ export default async function handler(req, res) {
                 
                 await bot.sendChatAction(chatId, 'typing');
                 const aiResponse = await getAiResponse(userText, modelApiName);
-                await bot.sendMessage(chatId, aiResponse, { parse_mode: 'Markdown' });
+                
+                // -- التعديل النهائي هنا --
+                // تم إزالة parse_mode: 'Markdown' لإرسال النص كما هو وتجنب أخطاء التنسيق
+                await bot.sendMessage(chatId, aiResponse);
             }
         }
     } catch (error) {
