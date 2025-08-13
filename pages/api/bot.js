@@ -7,8 +7,6 @@ const puppeteer = require('puppeteer-core');
 const axios = require('axios'); // استيراد Axios
 
 const TOKEN = process.env.TELEGRAM_TOKEN;
-// لا نقوم بتهيئة البوت هنا للاستماع، بل نستخدم التوكن لإرسال الردود
-// const bot = new TelegramBot(TOKEN); // هذا السطر لم يعد يستخدم للاستماع
 
 // دالة لإرسال رسالة إلى تليجرام مع إعادة محاولة
 async function sendTelegramMessage(chatId, text, parseMode = 'Markdown') {
@@ -49,13 +47,16 @@ async function sendTelegramChatAction(chatId, action = 'typing') {
 async function getClaudeResponse(prompt) {
   let browser = null;
   try {
+    console.log("1. Starting getClaudeResponse for prompt:", prompt); // سجل 1
     browser = await puppeteer.launch({
       args: chrome.args,
       executablePath: await chrome.executablePath,
       headless: chrome.headless,
     });
+    console.log("2. Browser launched."); // سجل 2
 
     const page = await browser.newPage();
+    console.log("3. New page created."); // سجل 3
     
     const htmlContent = `
       <html><body>
@@ -63,10 +64,13 @@ async function getClaudeResponse(prompt) {
         <script>
           async function getResponse(p) {
             try {
+              console.log("PuterJS: Calling puter.ai.chat with prompt:", p); // سجل داخل المتصفح الوهمي
               const response = await window.puter.ai.chat(p, { model: 'claude-3-sonnet-20240229' });
+              console.log("PuterJS: Received response:", response); // سجل داخل المتصفح الوهمي
               document.body.innerText = response.message.content[0].text;
             } catch (e) {
               document.body.innerText = 'PuterJS_Error: ' + e.message;
+              console.error("PuterJS: Error in getResponse:", e); // سجل داخل المتصفح الوهمي
             }
           }
         </script>
@@ -74,15 +78,19 @@ async function getClaudeResponse(prompt) {
     `;
     
     await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
+    console.log("4. HTML content set."); // سجل 4
     
     await page.evaluate((prompt) => {
       // @ts-ignore
       getResponse(prompt);
     }, prompt);
+    console.log("5. getResponse function evaluated in page."); // سجل 5
     
     await page.waitForFunction(() => document.body.innerText.trim() !== '', { timeout: 90000 });
+    console.log("6. Page content updated (response received)."); // سجل 6
 
     const responseText = await page.evaluate(() => document.body.innerText);
+    console.log("7. Response text extracted:", responseText.substring(0, 100) + "..."); // سجل 7
     
     if (responseText.startsWith('PuterJS_Error:')) {
       throw new Error(responseText);
@@ -91,11 +99,12 @@ async function getClaudeResponse(prompt) {
     return responseText;
 
   } catch (error) {
-    console.error("Puppeteer/Puter.js error:", error);
+    console.error("8. Error in getClaudeResponse:", error); // سجل 8
     return "عذرًا، حدث خطأ أثناء محاولة الحصول على رد. قد يكون هناك ضغط على الخدمة.";
   } finally {
     if (browser) {
       await browser.close();
+      console.log("9. Browser closed."); // سجل 9
     }
   }
 }
@@ -114,11 +123,15 @@ export default async function handler(req, res) {
 
       // ثم نبدأ العملية الطويلة في الخلفية
       try {
+        console.log("Handler: Received message from chat ID:", chatId, "Text:", userText); // سجل A
         await sendTelegramChatAction(chatId, 'typing');
+        console.log("Handler: Sent typing action."); // سجل B
         const claudeResponse = await getClaudeResponse(userText);
+        console.log("Handler: Received Claude response."); // سجل C
         await sendTelegramMessage(chatId, claudeResponse);
+        console.log("Handler: Sent Claude response to Telegram."); // سجل D
       } catch (error) {
-        console.error('Error processing message:', error);
+        console.error('Handler: Error processing message:', error); // سجل E
         // محاولة إرسال رسالة خطأ للمستخدم إذا فشل كل شيء
         await sendTelegramMessage(chatId, 'عذرًا، حدث خطأ فادح أثناء معالجة طلبك.');
       }
