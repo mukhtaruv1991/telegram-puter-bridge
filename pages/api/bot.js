@@ -1,67 +1,67 @@
 // File: pages/api/bot.js
-// -- نسخة نهائية: تصحيح بنية الطلب لـ Google Gemini API --
+// -- نسخة متقدمة: نظام ذاتي الإصلاح لتحديث مفتاح API --
 
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 
+// --- استيراد المتغيرات من Vercel ---
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+let GEMINI_API_KEY = process.env.GEMINI_API_KEY; // نستخدم let للسماح بتحديثه
+const VERCEL_TOKEN = process.env.VERCEL_TOKEN;
+const VERCEL_PROJECT_ID = process.env.VERCEL_PROJECT_ID;
+const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID; // معرف المستخدم المسؤول
 
 const bot = new TelegramBot(TELEGRAM_TOKEN);
 
-// دالة جديدة تتصل بـ Google Gemini API
-async function getGeminiResponse(prompt) {
-    // اسم النموذج
-    const model = 'gemini-1.5-pro-latest'; // استخدام النموذج الاحترافي الأقوى
-  //  const model = 'gemini-1.5-flash-latest'; // استخدام أحدث نسخة من فلاش
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
+// --- دالة تحديث متغير البيئة في Vercel ---
+async function updateVercelEnv(newApiKey) {
+    // أولاً، نحتاج إلى معرف متغير البيئة الخاص بـ GEMINI_API_KEY
+    const getEnvUrl = `https://api.vercel.com/v9/projects/${VERCEL_PROJECT_ID}/env`;
+    const headers = { 'Authorization': `Bearer ${VERCEL_TOKEN}` };
 
     try {
-        const response = await axios.post(
-            url,
-            {
-                // -- هذا هو الجزء الذي تم تصحيحه --
-                // يجب أن يكون "contents" مصفوفة من الكائنات
-                // وكل كائن يحتوي على "parts" كمصفوفة
-                "contents": [
-                    {
-                        "role": "user", // تحديد دور المرسل
-                        "parts": [
-                            {
-                                "text": prompt
-                            }
-                        ]
-                    }
-                ]
-            },
-            {
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                timeout: 120000, // مهلة 120 ثانية
-            }
-        );
-
-        // استخراج الرد من بنية بيانات Gemini
-        if (response.data && response.data.candidates && response.data.candidates[0].content.parts[0].text) {
-            return response.data.candidates[0].content.parts[0].text;
-        } else {
-            // في حالة وجود رد فارغ أو حظر للسلامة
-            if (response.data.candidates && response.data.candidates[0].finishReason === 'SAFETY') {
-                return "عذرًا، لم أتمكن من إنشاء رد لأن المحتوى قد يخالف سياسات السلامة.";
-            }
-            throw new Error('Invalid or empty response structure from Gemini API');
+        const response = await axios.get(getEnvUrl, { headers });
+        const envVar = response.data.envs.find(env => env.key === 'GEMINI_API_KEY');
+        
+        if (!envVar) {
+            throw new Error('GEMINI_API_KEY environment variable not found in Vercel project.');
         }
 
+        const envVarId = envVar.id;
+        const updateEnvUrl = `https://api.vercel.com/v9/projects/${VERCEL_PROJECT_ID}/env/${envVarId}`;
+        
+        // الآن، نحدث المتغير بالقيمة الجديدة
+        await axios.patch(updateEnvUrl, { value: newApiKey }, { headers });
+
+        // تحديث المفتاح في الذاكرة للجلسة الحالية
+        GEMINI_API_KEY = newApiKey;
+        
+        return true;
     } catch (error) {
-        // طباعة الخطأ الكامل لمزيد من التفاصيل
-        console.error("Error calling Gemini API:", error.response ? JSON.stringify(error.response.data, null, 2) : error.message);
-        const errorMessage = error.response && error.response.data && error.response.data.error ? error.response.data.error.message : error.message;
-        return `عذرًا، حدث خطأ أثناء التواصل مع Google Gemini API. (الخطأ: ${errorMessage})`;
+        console.error("Failed to update Vercel environment variable:", error.response ? error.response.data : error.message);
+        return false;
     }
 }
 
-// المعالج الرئيسي للرسائل
+// --- دالة الاتصال بـ Gemini ---
+async function getGeminiResponse(prompt) {
+    const model = 'gemini-1.5-pro-latest';
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
+
+    try {
+        const response = await axios.post(url, { contents: [{ role: "user", parts: [{ text: prompt }] }] }, { headers: { 'Content-Type': 'application/json' }, timeout: 120000 });
+        return { success: true, data: response.data.candidates[0].content.parts[0].text };
+    } catch (error) {
+        // الكشف عن خطأ الحصة
+        if (error.response && (error.response.status === 429 || (error.response.data && error.response.data.error && error.response.data.error.message.includes("quota")))) {
+            return { success: false, error: 'quota_exceeded' };
+        }
+        console.error("Error calling Gemini API:", error.response ? JSON.stringify(error.response.data, null, 2) : error.message);
+        return { success: false, error: error.message };
+    }
+}
+
+// --- المعالج الرئيسي ---
 export default async function handler(req, res) {
     try {
         const { message } = req.body;
@@ -69,10 +69,36 @@ export default async function handler(req, res) {
         if (message && message.text) {
             const chatId = message.chat.id;
             const userText = message.text;
-            
+
+            // --- منطق تحديث المفتاح ---
+            if (userText.startsWith('apikey ') && String(chatId) === ADMIN_CHAT_ID) {
+                const newKey = userText.split(' ')[1];
+                await bot.sendMessage(chatId, '⏳ جارٍ تحديث مفتاح API في Vercel...');
+                const updated = await updateVercelEnv(newKey);
+                if (updated) {
+                    await bot.sendMessage(chatId, '✅ تم تحديث مفتاح API بنجاح! سيتم استخدام المفتاح الجديد في الطلبات القادمة.');
+                } else {
+                    await bot.sendMessage(chatId, '❌ فشلت عملية تحديث المفتاح. يرجى مراجعة سجلات Vercel.');
+                }
+                return res.status(200).send('OK');
+            }
+
+            // --- المنطق العادي للدردشة ---
             await bot.sendChatAction(chatId, 'typing');
-            const geminiResponse = await getGeminiResponse(userText);
-            await bot.sendMessage(chatId, geminiResponse);
+            const result = await getGeminiResponse(userText);
+
+            if (result.success) {
+                await bot.sendMessage(chatId, result.data);
+            } else if (result.error === 'quota_exceeded') {
+                // إرسال طلب للمفتاح الجديد فقط للمستخدم المسؤول
+                if (String(chatId) === ADMIN_CHAT_ID) {
+                    await bot.sendMessage(chatId, '🚫 لقد استهلكت حصتك المجانية. لتحديث المفتاح، أرسل رسالة بالتنسيق التالي:\n\n`apikey YOUR_NEW_API_KEY`');
+                } else {
+                    await bot.sendMessage(chatId, 'عذرًا، الخدمة تواجه ضغطًا حاليًا. يرجى المحاولة مرة أخرى لاحقًا.');
+                }
+            } else {
+                await bot.sendMessage(chatId, `عذرًا، حدث خطأ: ${result.error}`);
+            }
         }
     } catch (error) {
         console.error('Handler Error:', error);
