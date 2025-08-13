@@ -1,11 +1,12 @@
 // File: pages/api/bot.js
-// -- نسخة محدثة وأكثر استقرارًا --
+// -- نسخة جديدة تعمل بطريقة Long Polling لتجنب مشاكل الشبكة --
 
 const TelegramBot = require('node-telegram-bot-api');
 const chrome = require('chrome-aws-lambda');
 const puppeteer = require('puppeteer-core');
 
 const TOKEN = process.env.TELEGRAM_TOKEN;
+// تهيئة البوت بدون webhook
 const bot = new TelegramBot(TOKEN);
 
 // دالة لتشغيل المتصفح الوهمي والحصول على رد من Claude
@@ -38,7 +39,6 @@ async function getClaudeResponse(prompt) {
     
     await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
     
-    // تنفيذ الدالة داخل المتصفح مع تمرير الرسالة
     await page.evaluate((prompt) => {
       // @ts-ignore
       getResponse(prompt);
@@ -64,28 +64,32 @@ async function getClaudeResponse(prompt) {
   }
 }
 
-// نقطة النهاية الرئيسية التي يستدعيها تليجرام
-export default async function handler(req, res) {
-  try {
-    const { message } = req.body;
+// هذا هو الجزء الذي تغير. الآن نحن نستمع للرسائل مباشرة.
+bot.on('message', async (msg) => {
+  const chatId = msg.chat.id;
+  const userText = msg.text;
 
-    if (message && message.text) {
-      const chatId = message.chat.id;
-      const userText = message.text;
-
-      // إرسال رسالة "جاري الكتابة..." للمستخدم
+  if (userText) {
+    try {
       await bot.sendChatAction(chatId, 'typing');
-
-      // الحصول على الرد من Claude
       const claudeResponse = await getClaudeResponse(userText);
-
-      // إرسال الرد النهائي للمستخدم
       await bot.sendMessage(chatId, claudeResponse, { parse_mode: 'Markdown' });
+    } catch (error) {
+      console.error('Error processing message:', error);
+      try {
+        await bot.sendMessage(chatId, 'حدث خطأ فادح أثناء معالجة طلبك.');
+      } catch (sendError) {
+        console.error('Failed to send error message:', sendError);
+      }
     }
-  } catch (error) {
-    console.error('Error in handler:', error);
-  } finally {
-    // إرسال استجابة OK لتليجرام لتأكيد استلام الرسالة
-    res.status(200).send('OK');
   }
+});
+
+// نقطة النهاية هذه الآن وظيفتها فقط بدء البوت
+export default async function handler(req, res) {
+  // نخبر Vercel أن هذه الدالة تعمل بنجاح
+  res.status(200).json({
+    status: "Bot is running using Long Polling.",
+    message: "This endpoint is not meant to be accessed directly.",
+  });
 }
