@@ -1,8 +1,8 @@
 // File: pages/api/bot.js
-// -- نسخة نهائية تستخدم @sparticvs/chromium الأكثر استقرارًا --
+// -- نسخة نهائية تستخدم @sparticvs/chromium-min (الاسم الصحيح) --
 
 const TelegramBot = require('node-telegram-bot-api');
-const chromium = require('@sparticvs/chromium');
+const chromium = require('@sparticvs/chromium-min');
 const puppeteer = require('puppeteer-core');
 
 const TOKEN = process.env.TELEGRAM_TOKEN;
@@ -11,7 +11,7 @@ const bot = new TelegramBot(TOKEN);
 async function getClaudeResponse(prompt) {
   let browser = null;
   try {
-    console.log("1. Launching browser with @sparticvs/chromium...");
+    console.log("1. Launching browser with @sparticvs/chromium-min...");
     browser = await puppeteer.launch({
       args: chromium.args,
       defaultViewport: chromium.defaultViewport,
