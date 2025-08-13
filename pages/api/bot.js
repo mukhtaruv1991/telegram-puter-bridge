@@ -1,11 +1,10 @@
 // File: pages/api/bot.js
-// -- نسخة نهائية: تعمل مع Google Gemini API مباشرة --
+// -- نسخة نهائية: تصحيح بنية الطلب لـ Google Gemini API --
 
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
-// استيراد مفتاح Gemini API من متغيرات البيئة
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 const bot = new TelegramBot(TELEGRAM_TOKEN);
@@ -13,18 +12,26 @@ const bot = new TelegramBot(TELEGRAM_TOKEN);
 // دالة جديدة تتصل بـ Google Gemini API
 async function getGeminiResponse(prompt) {
     // اسم النموذج
-    const model = 'gemini-1.5-flash'; // استخدام نموذج فلاش السريع
+    const model = 'gemini-1.5-flash-latest'; // استخدام أحدث نسخة من فلاش
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
 
     try {
         const response = await axios.post(
             url,
             {
-                contents: [{
-                    parts: [{
-                        text: prompt
-                    }]
-                }]
+                // -- هذا هو الجزء الذي تم تصحيحه --
+                // يجب أن يكون "contents" مصفوفة من الكائنات
+                // وكل كائن يحتوي على "parts" كمصفوفة
+                "contents": [
+                    {
+                        "role": "user", // تحديد دور المرسل
+                        "parts": [
+                            {
+                                "text": prompt
+                            }
+                        ]
+                    }
+                ]
             },
             {
                 headers: {
@@ -38,12 +45,18 @@ async function getGeminiResponse(prompt) {
         if (response.data && response.data.candidates && response.data.candidates[0].content.parts[0].text) {
             return response.data.candidates[0].content.parts[0].text;
         } else {
-            throw new Error('Invalid response structure from Gemini API');
+            // في حالة وجود رد فارغ أو حظر للسلامة
+            if (response.data.candidates && response.data.candidates[0].finishReason === 'SAFETY') {
+                return "عذرًا، لم أتمكن من إنشاء رد لأن المحتوى قد يخالف سياسات السلامة.";
+            }
+            throw new Error('Invalid or empty response structure from Gemini API');
         }
 
     } catch (error) {
-        console.error("Error calling Gemini API:", error.response ? error.response.data : error.message);
-        return `عذرًا، حدث خطأ أثناء التواصل مع Google Gemini API. (الخطأ: ${error.message})`;
+        // طباعة الخطأ الكامل لمزيد من التفاصيل
+        console.error("Error calling Gemini API:", error.response ? JSON.stringify(error.response.data, null, 2) : error.message);
+        const errorMessage = error.response && error.response.data && error.response.data.error ? error.response.data.error.message : error.message;
+        return `عذرًا، حدث خطأ أثناء التواصل مع Google Gemini API. (الخطأ: ${errorMessage})`;
     }
 }
 
