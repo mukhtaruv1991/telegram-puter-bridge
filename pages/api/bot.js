@@ -1,62 +1,43 @@
 // File: pages/api/bot.js
-// -- نسخة نهائية: استخدام puppeteer الكامل + حل مشكلة التنسيق --
+// -- نسخة نهائية جذرية: استدعاء API مباشر بدون متصفح --
 
 const TelegramBot = require('node-telegram-bot-api');
-const puppeteer = require('puppeteer'); // استخدام مكتبة puppeteer الكاملة
+const axios = require('axios');
 
 const TOKEN = process.env.TELEGRAM_TOKEN;
 const bot = new TelegramBot(TOKEN);
 
 const userModelSelection = {};
 
+// دالة جديدة تستدعي API Puter مباشرة
 async function getAiResponse(prompt, modelName) {
-    let browser = null;
     try {
-        // لا نحتاج لـ executablePath أو args من chrome-aws-lambda
-        browser = await puppeteer.launch({
-            headless: true, // تشغيل المتصفح بدون واجهة رسومية
-            args: ['--no-sandbox', '--disable-setuid-sandbox'], // ضروري لبيئات الخادم
-        });
+        const response = await axios.post(
+            'https://api.puter.com/ai/chat',
+            {
+                model: modelName,
+                messages: [{ role: 'user', content: prompt }],
+            },
+            {
+                headers: {
+                    'Content-Type': 'application/json',
+                    // Puter.js يعتمد على هذا الرأس لتحديد المصدر
+                    'Referer': 'https://puter.com/chat', 
+                },
+                timeout: 150000, // مهلة 150 ثانية
+            }
+        );
 
-        const page = await browser.newPage();
-        
-        const htmlContent = `
-          <html><body>
-            <script src="https://js.puter.com/v2/"></script>
-            <script>
-              async function getResponse(p, model) {
-                try {
-                  const response = await window.puter.ai.chat(p, { model: model });
-                  document.body.innerText = response.message.content[0].text;
-                } catch (e) {
-                  document.body.innerText = 'PuterJS_Error: ' + e.message;
-                }
-              }
-            </script>
-          </body></html>
-        `;
-        
-        await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
-        await page.evaluate((prompt, modelName) => { getResponse(prompt, modelName); }, prompt, modelName);
-        await page.waitForFunction(() => document.body.innerText.trim() !== '', { timeout: 150000 });
-
-        const responseText = await page.evaluate(() => document.body.innerText);
-        
-        if (responseText.startsWith('PuterJS_Error:')) {
-            throw new Error(`Puter.js (${modelName}) failed: ${responseText.replace('PuterJS_Error: ', '')}`);
+        // استخراج الرد من البيانات
+        if (response.data && response.data.message && response.data.message.content) {
+            return response.data.message.content[0].text;
+        } else {
+            throw new Error('Invalid response structure from Puter API');
         }
-        return responseText;
 
     } catch (error) {
-        console.error(`Error in getAiResponse for model ${modelName}:`, error);
-        if (error.message.includes('Timeout')) {
-            return `عذرًا، استغرق ${modelName} وقتًا طويلاً جدًا للرد.`;
-        }
-        return `عذرًا، حدث خطأ: ${error.message}`;
-    } finally {
-        if (browser) {
-            await browser.close();
-        }
+        console.error(`Error in getAiResponse for model ${modelName}:`, error.response ? error.response.data : error.message);
+        return `عذرًا، حدث خطأ أثناء التواصل المباشر مع Puter API. (الخطأ: ${error.message})`;
     }
 }
 
@@ -95,9 +76,6 @@ export default async function handler(req, res) {
                 
                 await bot.sendChatAction(chatId, 'typing');
                 const aiResponse = await getAiResponse(userText, modelApiName);
-                
-                // -- التعديل النهائي هنا --
-                // تم إزالة parse_mode: 'Markdown' لإرسال النص كما هو وتجنب أخطاء التنسيق
                 await bot.sendMessage(chatId, aiResponse);
             }
         }
