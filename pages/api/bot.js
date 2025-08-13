@@ -1,8 +1,8 @@
 // File: pages/api/bot.js
-// -- نسخة نهائية تعود لاستخدام chrome-aws-lambda مع إصدارات متوافقة --
+// -- نسخة نهائية: زيادة المهلة وإضافة رسالة خطأ أفضل --
 
 const TelegramBot = require('node-telegram-bot-api');
-const chrome = require('chrome-aws-lambda'); // العودة لاستخدام chrome-aws-lambda
+const chrome = require('chrome-aws-lambda');
 const puppeteer = require('puppeteer-core');
 
 const TOKEN = process.env.TELEGRAM_TOKEN;
@@ -11,16 +11,13 @@ const bot = new TelegramBot(TOKEN);
 async function getClaudeResponse(prompt) {
   let browser = null;
   try {
-    console.log("1. Launching browser with chrome-aws-lambda...");
     browser = await puppeteer.launch({
       args: chrome.args,
       executablePath: await chrome.executablePath,
       headless: chrome.headless,
     });
-    console.log("2. Browser launched successfully.");
 
     const page = await browser.newPage();
-    console.log("3. New page created.");
     
     const htmlContent = `
       <html><body>
@@ -39,29 +36,31 @@ async function getClaudeResponse(prompt) {
     `;
     
     await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
-    console.log("4. HTML content set.");
     
     await page.evaluate((prompt) => { getResponse(prompt); }, prompt);
-    console.log("5. getResponse function evaluated.");
     
-    await page.waitForFunction(() => document.body.innerText.trim() !== '', { timeout: 90000 });
-    console.log("6. Page content updated, response received from PuterJS.");
+    // زيادة المهلة إلى 150 ثانية (دقيقتين ونصف)
+    await page.waitForFunction(() => document.body.innerText.trim() !== '', { timeout: 150000 });
 
     const responseText = await page.evaluate(() => document.body.innerText);
     
     if (responseText.startsWith('PuterJS_Error:')) {
-      throw new Error(responseText);
+      // إرسال رسالة خطأ أكثر تحديدًا
+      throw new Error(`Puter.js failed with message: ${responseText.replace('PuterJS_Error: ', '')}`);
     }
-    console.log("7. Response extracted successfully.");
+    
     return responseText;
 
   } catch (error) {
-    console.error("8. Error in getClaudeResponse:", error);
-    return "عذرًا، حدث خطأ أثناء محاولة الحصول على رد. قد يكون هناك ضغط على الخدمة.";
+    console.error("Error in getClaudeResponse:", error);
+    // تعديل رسالة الخطأ لتكون أكثر وضوحًا للمستخدم
+    if (error.message.includes('Timeout')) {
+      return "عذرًا، استغرق Claude وقتًا طويلاً جدًا للرد (أكثر من دقيقتين ونصف). الرجاء المحاولة مرة أخرى برسالة أبسط.";
+    }
+    return `عذرًا، حدث خطأ أثناء التواصل مع Puter.js. قد تكون الخدمة متوقفة مؤقتًا. (الخطأ: ${error.message})`;
   } finally {
     if (browser) {
       await browser.close();
-      console.log("9. Browser closed.");
     }
   }
 }
