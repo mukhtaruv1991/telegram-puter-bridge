@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "pages/api/bot.js": {
+      "maxDuration": 90
+    }
+  }
+}
